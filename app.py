@@ -25,22 +25,25 @@ from flask import jsonify
 from flask import request
 from flask import Response
 
+# Include
+import exception
+
 app = Flask(__name__)
 app.debug = True
 
+
 def prettify(elem):
-    """Return a pretty-printed XML string for the Element.
-    """
+    """Return a pretty-printed XML string for the Element."""
     rough_string = ElementTree.tostring(elem, 'utf-8')
     return rough_string
     reparsed = minidom.parseString(rough_string)
     return reparsed.toprettyxml(indent="  ", encoding="utf-8")
 
+
 def fild_all_files(directory):
     for root, dirs, files in os.walk(directory):
         yield root
         for file in files:
-            #yield os.path.join(root, file)
             yield file
 
 
@@ -48,71 +51,15 @@ class RequestType():
     VirtualHost = 1
     Path = 2
 
+
 class ObjectStorageSettings():
     root_dir = None
     access_key_id = 'record-test'
     secret_access_key = '3/Pp43hw9TQ3nKV21MiKcwrd5BofA3UjnDfihIWk'
     virtual_hostname = 'b.uhouho.net'
 
-class AppException(Exception):
-    pass
-class InvalidBucketName(AppException):
-    status_code = 400
-    message = 'xxx'
-class MetadataTooLarge(AppException):
-    status_code = 400
-    message = 'xxx'
-class InvalidArgument(AppException):
-    status_code = 400
-    message = 'xxx'
-class TooManyBuckets(AppException):
-    status_code = 400
-    message = 'xxx'
-class InvalidDigest(AppException):
-    status_code = 400
-    message = 'xxx'
-class EntityTooLarge(AppException):
-    status_code = 400
-    message = 'xxx'
-class AccessDenied(AppException):
-    status_code = 403
-    message = 'xxx'
-class SignatureDoesNotMatch(AppException):
-    status_code = 403
-    message = 'xxx'
-class InvalidAccessKeyId(AppException):
-    status_code = 403
-    message = 'xxx'
-class NoSuchBucket(AppException):
-    status_code = 404
-    message = 'xxx'
-class NoSuchKey(AppException):
-    status_code = 404
-    message = 'xxx'
-class NotSuchBucketPolicy(AppException):
-    status_code = 404
-    message = 'xxx'
-class MethodNotAllowed(AppException):
-    status_code = 405
-    message = 'xxx'
-class BucketAlreadyExists(AppException):
-    status_code = 409
-    message = 'xxx'
-class BucketNotEmpty(AppException):
-    status_code = 409
-    message = 'xxx'
-class MissingContentLength(AppException):
-    status_code = 411
-    message = 'xxx'
-class InternalError(AppException):
-    status_code = 500
-    message = 'xxx'
-class NotImplemented(AppException):
-    status_code = 501
-    message = 'xxx'
 
-
-@app.errorhandler(AppException)
+@app.errorhandler(exception.AppException)
 def handle_invalid_usage(error):
     response = jsonify(status_code=error.status_code, message=error.message)
     response.status_code = error.status_code
@@ -145,22 +92,22 @@ def get_request_information(path_string):
 def validation_request_header(keys):
     for key in keys:
         if key not in request.headers:
-            raise InvalidArgument()
+            raise exception.InvalidArgument()
 
 
 def validation_date():
     try:
         date = dateutil.parser.parse(request.headers.get('Date'))
     except exceptions.TypeError:
-        raise InvalidArgument()
+        raise exception.InvalidArgument()
     tz_tokyo = pytz.timezone('Asia/Tokyo')
     diff = datetime.datetime.now(tz_tokyo) - date
     if diff > datetime.timedelta(minutes=3):
-        raise InvalidArgument()
+        raise exception.InvalidArgument()
 
 def validation_filesize(size):
     if len(request.data) != int(size):
-        raise InvalidArgument()
+        raise exception.InvalidArgument()
 
 
 def authorization(raw_string):
@@ -175,7 +122,7 @@ def authorization(raw_string):
     )
     if calc_token != request.headers.get('Authorization'):
         print('**Error:SignatureDoesNotMatch**')
-        raise SignatureDoesNotMatch()
+        raise exception.SignatureDoesNotMatch()
     """
 
 def convert_local_path(remote_path):
@@ -188,7 +135,7 @@ def check_object_exists(remote_path):
     local_path = convert_local_path(remote_path)
     if not os.path.exists(local_path):
         print('**Error:NoSuchKey**')
-        raise NoSuchKey()
+        raise exception.NoSuchKey()
 
 
 @app.route("/", methods=['HEAD'])
@@ -322,7 +269,7 @@ def object_get(path_string):
 
     if os.path.isdir(local_path):
         print('->Dame')
-        raise InvalidArgument()
+        raise exception.InvalidArgument()
 
     return 'NG'
 
