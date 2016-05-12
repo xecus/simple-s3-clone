@@ -155,8 +155,13 @@ def authorization_request(bucket_name, access_key_id, raw_string):
         raise exception.SignatureDoesNotMatch()
 
 
-def convert_local_path(remote_path):
-    return os.path.abspath(remote_path)
+def convert_local_path(bucket_name, remote_path):
+    return os.path.abspath(
+        os.path.join(
+            StorageSettings.settings['buckets'][bucket_name]['root_path'],
+            remote_path
+        )
+    )
 
 
 @app.route("/", methods=['HEAD'])
@@ -205,7 +210,7 @@ def head_object(path_string):
         )
     )
 
-    local_path = convert_local_path(remote_path)
+    local_path = convert_local_path(bucket_name, remote_path)
 
     # Debug
     print('path_string:[{}]'.format(path_string))
@@ -254,10 +259,14 @@ def get_root():
     print('prefix:[{}]'.format(prefix_string))
 
     objects = list()
-    for root, dirs, files in os.walk('./{}'.format(prefix_string)):
+    for root, dirs, files in os.walk(
+            os.path.join(
+                StorageSettings.settings['buckets'][bucket_name]['root_path'],
+                prefix_string
+            )
+    ):
         for file in files:
             tmp = os.path.join(root, file)
-            tmp = tmp[len('./'):]
             objects.append(tmp)
 
     top = ElementTree.Element(
@@ -283,7 +292,7 @@ def get_root():
         etag = '&quot;{}&quot;'.format(checksum)
         size = '{}'.format(os.path.getsize(object))
         contents = ElementTree.SubElement(top, 'Contents')
-        ElementTree.SubElement(contents, 'Key').text = object
+        ElementTree.SubElement(contents, 'Key').text = object[len('./'):]
         ElementTree.SubElement(contents, 'LastModified').text = last_modified
         ElementTree.SubElement(contents, 'ETag').text = etag
         ElementTree.SubElement(contents, 'Size').text = size
@@ -316,7 +325,7 @@ def get_object(path_string):
         )
     )
     
-    local_path = convert_local_path(remote_path)
+    local_path = convert_local_path(bucket_name, remote_path)
     print('path_string:[{}]'.format(path_string))
     print('bucket_name:[{}]'.format(bucket_name))
     print('remote_path:[{}]'.format(remote_path))
@@ -363,19 +372,21 @@ def put_object(path_string):
     validation_filesize(request.headers.get('Content-Length'))
 
     # Create Directories
-    dir_path = os.path.join('./', os.path.dirname(path_string))
+    local_path = convert_local_path(bucket_name, path_string)
+    print('local_path: {}'.format(local_path))
+    dir_path = os.path.dirname(local_path)
     try:
         os.makedirs(dir_path)
     except OSError:
         pass
 
     # Write posted data to file
-    with open(path_string, 'wb') as f:
+    with open(local_path, 'wb') as f:
         f.write(request.data)
         f.close()
 
     # Check MD5
-    with open(path_string, 'rb') as f:
+    with open(local_path, 'rb') as f:
         checksum = hashlib.md5(f.read()).hexdigest()
 
     # Response
@@ -404,7 +415,7 @@ def delete_object(path_string):
         )
     )
     bucket_name, remote_path, request_type = get_request_information(path_string)
-    local_path = convert_local_path(remote_path)
+    local_path = convert_local_path(bucket_name, remote_path)
     print 'local_path:{}'.format(local_path)
     #shutil.rmtree(local_path)
     return ('', 204)

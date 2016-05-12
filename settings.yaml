@@ -6,7 +6,7 @@ app:
 
 buckets:
   record-test:
-    root_path: ./
+    root_path: ./record-test
     credentials:
       -
         access_key_id: access_key_user_1
