@@ -259,6 +259,7 @@ def get_root():
     print('prefix:[{}]'.format(prefix_string))
 
     objects = list()
+    bucket_root = convert_local_path(bucket_name, '')
     for root, dirs, files in os.walk(
             os.path.join(
                 StorageSettings.settings['buckets'][bucket_name]['root_path'],
@@ -266,8 +267,9 @@ def get_root():
             )
     ):
         for file in files:
-            tmp = os.path.join(root, file)
-            objects.append(tmp)
+            abs_path = os.path.abspath(os.path.join(root, file))
+            abs_path = abs_path[len('{}/'.format(bucket_root)):]
+            objects.append(abs_path)
 
     top = ElementTree.Element(
         'ListBucketResult',
@@ -281,6 +283,10 @@ def get_root():
     ElementTree.SubElement(top, 'IsTruncated').text = 'false'
 
     for object in objects:
+
+        origin_object = object
+        object = convert_local_path(bucket_name, object)
+
         with open(object, 'rb') as f:
                 checksum = hashlib.md5(f.read()).hexdigest()
         print('object:[{}]'.format(object))
@@ -292,7 +298,7 @@ def get_root():
         etag = '&quot;{}&quot;'.format(checksum)
         size = '{}'.format(os.path.getsize(object))
         contents = ElementTree.SubElement(top, 'Contents')
-        ElementTree.SubElement(contents, 'Key').text = object[len('./'):]
+        ElementTree.SubElement(contents, 'Key').text = origin_object
         ElementTree.SubElement(contents, 'LastModified').text = last_modified
         ElementTree.SubElement(contents, 'ETag').text = etag
         ElementTree.SubElement(contents, 'Size').text = size
@@ -373,7 +379,6 @@ def put_object(path_string):
 
     # Create Directories
     local_path = convert_local_path(bucket_name, path_string)
-    print('local_path: {}'.format(local_path))
     dir_path = os.path.dirname(local_path)
     try:
         os.makedirs(dir_path)
@@ -416,7 +421,11 @@ def delete_object(path_string):
     )
     bucket_name, remote_path, request_type = get_request_information(path_string)
     local_path = convert_local_path(bucket_name, remote_path)
-    print 'local_path:{}'.format(local_path)
+
+
+    if not os.path.exists(local_path):
+        raise exception.NoSuchKey()
+
     #shutil.rmtree(local_path)
     return ('', 204)
 
