@@ -1,12 +1,13 @@
 
 import re
 import os
-import sys
 import shutil
 
 # XML
 from xml.etree import ElementTree
-from xml.dom import minidom
+
+# YAML
+import yaml
 
 # Dateutil
 import pytz
@@ -27,24 +28,10 @@ from flask import Response
 
 # Include
 import exception
+import util
 
 app = Flask(__name__)
 app.debug = True
-
-
-def prettify(elem):
-    """Return a pretty-printed XML string for the Element."""
-    rough_string = ElementTree.tostring(elem, 'utf-8')
-    return rough_string
-    reparsed = minidom.parseString(rough_string)
-    return reparsed.toprettyxml(indent="  ", encoding="utf-8")
-
-
-def fild_all_files(directory):
-    for root, dirs, files in os.walk(directory):
-        yield root
-        for file in files:
-            yield file
 
 
 class RequestType():
@@ -52,12 +39,30 @@ class RequestType():
     Path = 2
 
 
-class ObjectStorageSettings():
-    root_dir = None
-    access_key_id = 'record-test'
-    secret_access_key = '3/Pp43hw9TQ3nKV21MiKcwrd5BofA3UjnDfihIWk'
-    virtual_hostname = 'b.uhouho.net'
+class StorageSettings():
+    settings = None
 
+    @classmethod
+    def load(cls, filepath):
+        with open(filepath, 'r') as f:
+            cls.settings = yaml.load(f)
+            f.close()
+
+    @classmethod
+    def has_bucket(cls, bucket_name):
+        return bucket_name in cls.settings['buckets']
+
+    @classmethod
+    def get_secret_access_key(cls, bucket_name, access_key_id):
+        credentials = filter(
+            lambda x: x['access_key_id'] == access_key_id,
+            cls.settings['buckets'][bucket_name]['credentials']
+        )
+        if len(credentials) == 1:
+            return credentials[0]['secret_access_key']
+        else:
+            return None
+    
 
 @app.errorhandler(exception.AppException)
 def handle_invalid_usage(error):
@@ -66,13 +71,18 @@ def handle_invalid_usage(error):
     return response
 
 
+def get_request_access_key_id():
+    auth_string = request.headers.get('Authorization').split(' ')[1]
+    return auth_string.split(':')[0]
+
+
 def get_request_information(path_string):
     # Remove URL Query
     if path_string.count('?') > 0:
         path_string = path_string.split('?', 1)[0]
     # Virtual Host Type
     bucket_name = re.match(
-        '(.*).{0}'.format(ObjectStorageSettings.virtual_hostname),
+        '(.*).{0}'.format(StorageSettings.settings['app']['virtual_host']),
         request.headers.get('Host'))
     if bucket_name:
         bucket_name = bucket_name.group(1)
@@ -95,29 +105,53 @@ def validation_request_header(keys):
             raise exception.InvalidArgument()
 
 
+def validation_request_authorization():
+    auth_string = request.headers.get('Authorization').split(' ')
+    if len(auth_string) != 2:
+        raise exception.InvalidArgument()
+    if auth_string[0] != 'AWS':
+        raise exception.InvalidArgument()
+    if auth_string[1].count(':') != 1:
+        raise exception.InvalidArgument()
+
+
 def validation_date():
     try:
         date = dateutil.parser.parse(request.headers.get('Date'))
-    except exceptions.TypeError:
+    except exception.TypeError:
         raise exception.InvalidArgument()
     tz_tokyo = pytz.timezone('Asia/Tokyo')
     diff = datetime.datetime.now(tz_tokyo) - date
     if diff > datetime.timedelta(minutes=3):
         raise exception.InvalidArgument()
 
+
 def validation_filesize(size):
     if len(request.data) != int(size):
         raise exception.InvalidArgument()
 
 
-def authorization(raw_string):
+def authorization_request(bucket_name, access_key_id, raw_string):
+    print bucket_name
+    print access_key_id
+    print access_key_id
+    """
+    if not StorageSettings.has_bucket(bucket_name):
+        print('Err: NoSuchBucket')
+        raise exception.NoSuchBucket()
+    
+    secret_access_key = StorageSettings.get_secret_access_key(bucket_name, access_key_id)
+    if secret_access_key is None:
+        print('Err: InvalidAccessKeyId')
+        raise exception.InvalidAccessKeyId()
+    """
     """
     hashed = hmac.new(
-        ObjectStorageSettings.secret_access_key,
+        StorageSettings.secret_access_key,
         raw_string,hashlib.sha1
     ).digest()
     calc_token = 'AWS {0}:{1}'.format(
-        ObjectStorageSettings.access_key_id,
+        StorageSettings.access_key_id,
         base64.encodestring(hashed).rstrip()
     )
     if calc_token != request.headers.get('Authorization'):
@@ -125,54 +159,60 @@ def authorization(raw_string):
         raise exception.SignatureDoesNotMatch()
     """
 
+
 def convert_local_path(remote_path):
-    if ObjectStorageSettings.root_dir:
-        return os.path.join(ObjectStorageSettings.root_dir, remote_path)
     return os.path.abspath(remote_path)
-
-
-def check_object_exists(remote_path):
-    local_path = convert_local_path(remote_path)
-    if not os.path.exists(local_path):
-        print('**Error:NoSuchKey**')
-        raise exception.NoSuchKey()
 
 
 @app.route("/", methods=['HEAD'])
 def head_root():
+    """Check Bucket Accessing Permission."""
     # Process Header
     validation_request_header(['Host', 'Date', 'Authorization'])
+    validation_request_authorization()
     validation_date()
-    authorization(
+
+    bucket_name, remote_path, request_type = get_request_information('')
+    access_key_id = get_request_access_key_id()
+    authorization_request(
+        bucket_name,
+        access_key_id,
         'HEAD\n\n\n{0}\n/'.format(request.headers.get('Date'))
     )
-    bucket_name, remote_path, request_type = get_request_information('')
+
+    # Debug
     print('bucket_name:[{}]'.format(bucket_name))
     print('remote_path:[{}]'.format(remote_path))
     print('request_type:[{}]'.format(request_type))
-    # Process
-    if bucket_name == 'record-test':
-        return ('', 200)
-    else:
-        return ('', 403)
+
+    return ('', 200)
+
 
 @app.route("/<path:path_string>", methods=['HEAD'])
 def head_object(path_string):
-    print request.headers
-    # Process Header
+    """Check Object Accessing Permission."""
     validation_request_header(['Host', 'Date', 'Authorization'])
+    validation_request_authorization()
     validation_date()
-    authorization(
+
+    bucket_name, remote_path, request_type = get_request_information(path_string)
+    access_key_id = get_request_access_key_id()
+    authorization_request(
+        bucket_name,
+        access_key_id,
         'HEAD\n\n\n{0}\n/{1}'.format(request.headers.get('Date'), path_string)
     )
-    bucket_name, remote_path, request_type = get_request_information(path_string)
+
     local_path = convert_local_path(remote_path)
+
+    # Debug
     print('path_string:[{}]'.format(path_string))
     print('bucket_name:[{}]'.format(bucket_name))
     print('remote_path:[{}]'.format(remote_path))
-    print('local_path:[{}]'.format(local_path))
     print('request_type:[{}]'.format(request_type))
+    print('local_path:[{}]'.format(local_path))
 
+    # Object Check
     if os.path.exists(local_path):
         return ('', 200)
     else:
@@ -180,34 +220,41 @@ def head_object(path_string):
 
 
 @app.route("/", methods=['GET'])
-def object_get_root():
+def get_root():
     """Listing Object ."""
     # Process Header
     validation_request_header(['Host', 'Date', 'Authorization'])
+    validation_request_authorization()
     validation_date()
-    authorization(
+
+    bucket_name, remote_path, request_type = get_request_information('')
+    access_key_id = get_request_access_key_id()
+    authorization_request(
+        bucket_name,
+        access_key_id,
         'GET\n\n\n{0}\n/'.format(request.headers.get('Date'))
     )
-    bucket_name, remote_path, request_type = get_request_information('')
-    print('bucket_name:[{}]'.format(bucket_name))
-    print('remote_path:[{}]'.format(remote_path))
-    print('request_type:[{}]'.format(request_type))
-    # Process Query
+    
     delimiter_string = request.args.get('delimiter')
     marker_string = request.args.get('marker')
     max_keys_string = request.args.get('max-keys', '1000')
     prefix_string = request.args.get('prefix', '')
+
+    print('bucket_name:[{}]'.format(bucket_name))
+    print('remote_path:[{}]'.format(remote_path))
+    print('request_type:[{}]'.format(request_type))
     print('delimiter:[{}]'.format(delimiter_string))
     print('marker:[{}]'.format(marker_string))
     print('max-keys:[{}]'.format(max_keys_string))
     print('prefix:[{}]'.format(prefix_string))
-    # Listing
+
     objects = list()
     for root, dirs, files in os.walk('./{}'.format(prefix_string)):
         for file in files:
             tmp = os.path.join(root, file)
             tmp = tmp[len('./'):]
             objects.append(tmp)
+
     top = ElementTree.Element(
         'ListBucketResult',
         {'xmlns': 'http://s3.amazonaws.com/doc/2006-03-01/'})
@@ -218,13 +265,16 @@ def object_get_root():
     ElementTree.SubElement(top, 'KeyCount').text = str(len(objects))
     ElementTree.SubElement(top, 'MaxKeys').text = max_keys_string
     ElementTree.SubElement(top, 'IsTruncated').text = 'false'
+
     for object in objects:
         with open(object, 'rb') as f:
                 checksum = hashlib.md5(f.read()).hexdigest()
         print('object:[{}]'.format(object))
         print('exists:[{}]'.format(os.path.exists(object)))
         # Get Parameters of file
-        last_modified = datetime.datetime.fromtimestamp(os.stat(object).st_mtime).isoformat()
+        last_modified = datetime.datetime.fromtimestamp(
+            os.stat(object).st_mtime
+        ).isoformat()
         etag = '&quot;{}&quot;'.format(checksum)
         size = '{}'.format(os.path.getsize(object))
         contents = ElementTree.SubElement(top, 'Contents')
@@ -236,23 +286,27 @@ def object_get_root():
         #owner = ElementTree.SubElement(contents, 'Owner')
         #ElementTree.SubElement(owner, 'ID').text = '0001'
         #ElementTree.SubElement(owner, 'DisplayName').text = 'DefaultUser'
+
     # Response
-    xml_data = prettify(top)
+    xml_data = util.xml_prettify(top)
     return Response(xml_data, mimetype='application/xml')
 
+
 @app.route("/<path:path_string>", methods=['GET'])
-def object_get(path_string):
+def get_object(path_string):
     """Download Object ."""
     validation_request_header(['Host', 'Date', 'Authorization'])
+    validation_request_authorization()
     validation_date()
-    authorization(
-        'GET\n\n\n{0}\n/{1}'.format(
-            request.headers.get('Date'),
-            path_string)
+
+    bucket_name, remote_path, request_type = get_request_information(path_string)
+    access_key_id = get_request_access_key_id()
+    authorization_request(
+        bucket_name,
+        access_key_id,
+        'GET\n\n\n{0}\n/{1}'.format(request.headers.get('Date'), path_string)
     )
-    bucket_name, remote_path, request_type = get_request_information(
-        path_string
-    )
+    
     local_path = convert_local_path(remote_path)
     print('path_string:[{}]'.format(path_string))
     print('bucket_name:[{}]'.format(bucket_name))
@@ -260,33 +314,41 @@ def object_get(path_string):
     print('local_path:[{}]'.format(local_path))
     print('request_type:[{}]'.format(request_type))
 
+    if not os.path.exists(local_path):
+        raise exception.NoSuchKey()
+
     if os.path.isfile(local_path):
         data = ''
         with open(local_path, 'rb') as f:
             data = f.read()
             f.close()
-        return Response(response=data, content_type='application/octet-stream')
-
-    if os.path.isdir(local_path):
-        print('->Dame')
+        return Response(response=data,
+                        content_type='application/octet-stream')
+    else:
         raise exception.InvalidArgument()
-
-    return 'NG'
 
 
 @app.route("/<path:path_string>", methods=['PUT'])
-def object_put(path_string):
+def put_object(path_string):
     """Create Object."""
     validation_request_header(
         ['Host', 'Date', 'Content-Length', 'Content-Type', 'Authorization']
     )
+    validation_request_authorization()
     validation_date()
-    authorization(
+
+    bucket_name, remote_path, request_type = get_request_information(path_string)
+    access_key_id = get_request_access_key_id()
+    authorization_request(
+        bucket_name,
+        access_key_id,
         'PUT\n\n{0}\n{1}\n/{2}'.format(
             request.headers.get('Content-Type'),
             request.headers.get('Date'),
-            path_string)
+            path_string
+        )
     )
+
     validation_filesize(request.headers.get('Content-Length'))
 
     # Create Directories
@@ -295,28 +357,36 @@ def object_put(path_string):
         os.makedirs(dir_path)
     except OSError:
         pass
+
     # Write posted data to file
     with open(path_string, 'wb') as f:
         f.write(request.data)
         f.close()
+
     # Check MD5
     with open(path_string, 'rb') as f:
         checksum = hashlib.md5(f.read()).hexdigest()
+
     # Response
     headers = {
         'ETag': '"{}"'.format(checksum)
     }
+
     return Response('OK', headers=headers)
 
 
 @app.route("/<path:path_string>", methods=['DELETE'])
-def object_delete(path_string):
+def delete_object(path_string):
     validation_request_header(['Host', 'Date', 'Authorization'])
+    validation_request_authorization()
     validation_date()
-    authorization(
-        'DELETE\n\n\n{0}\n/{1}'.format(
-            request.headers.get('Date'),
-            path_string)
+
+    bucket_name, remote_path, request_type = get_request_information(path_string)
+    access_key_id = get_request_access_key_id()
+    authorization_request(
+        bucket_name,
+        access_key_id,
+        'DELETE\n\n\n{0}\n/{1}'.format(request.headers.get('Date'), path_string)
     )
     bucket_name, remote_path, request_type = get_request_information(path_string)
     local_path = convert_local_path(remote_path)
@@ -326,4 +396,10 @@ def object_delete(path_string):
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    StorageSettings.load('settings.yaml')
+    print StorageSettings.settings
+    app.run(
+        host=StorageSettings.settings['app']['host'],
+        port=StorageSettings.settings['app']['port']
+    )
+

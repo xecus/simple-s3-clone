@@ -1,0 +1,24 @@
+
+app:
+  virtual_host: b.uhouho.net
+  host: 0.0.0.0
+  port: 5000
+
+buckets:
+  record-test:
+    root_path: ./
+    credentials:
+      -
+        access_key_id: access_key_user_1
+        secret_access_key: F6AME4B6DSUQ6UIFHW62J0FT0UIOX0YQTTELHD7G
+        permission:
+          write: true
+          read: true
+          overwrite: true
+      -
+        access_key_id: access_key_user_2
+        secret_access_key: F6AME4B6DSUQ6UIFHW62J0FT0UIOX0YQTTELHD7G
+        permission:
+          write: true
+          read: true
+          overwrite: true

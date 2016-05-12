@@ -3,6 +3,7 @@ class AppException(Exception):
     pass
 
 
+# Implemented
 class InvalidBucketName(AppException):
     status_code = 400
     message = 'xxx'
