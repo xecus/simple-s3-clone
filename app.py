@@ -100,6 +100,9 @@ def get_request_information(path_string):
 
 
 def validation_request_header(keys):
+    print '-----------------------'
+    print request.headers
+    print '-----------------------'
     for key in keys:
         if key not in request.headers:
             raise exception.InvalidArgument()
@@ -132,32 +135,24 @@ def validation_filesize(size):
 
 
 def authorization_request(bucket_name, access_key_id, raw_string):
-    print bucket_name
-    print access_key_id
-    print access_key_id
-    """
+
     if not StorageSettings.has_bucket(bucket_name):
         print('Err: NoSuchBucket')
         raise exception.NoSuchBucket()
     
-    secret_access_key = StorageSettings.get_secret_access_key(bucket_name, access_key_id)
+    secret_access_key = StorageSettings.get_secret_access_key(
+        bucket_name, access_key_id)
     if secret_access_key is None:
         print('Err: InvalidAccessKeyId')
         raise exception.InvalidAccessKeyId()
-    """
-    """
-    hashed = hmac.new(
-        StorageSettings.secret_access_key,
-        raw_string,hashlib.sha1
-    ).digest()
+
+    hashed = hmac.new(secret_access_key, raw_string, hashlib.sha1).digest()
     calc_token = 'AWS {0}:{1}'.format(
-        StorageSettings.access_key_id,
-        base64.encodestring(hashed).rstrip()
+        access_key_id, base64.encodestring(hashed).rstrip()
     )
     if calc_token != request.headers.get('Authorization'):
-        print('**Error:SignatureDoesNotMatch**')
+        print('Err: SignatureDoesNotMatch')
         raise exception.SignatureDoesNotMatch()
-    """
 
 
 def convert_local_path(remote_path):
@@ -177,7 +172,10 @@ def head_root():
     authorization_request(
         bucket_name,
         access_key_id,
-        'HEAD\n\n\n{0}\n/'.format(request.headers.get('Date'))
+        'HEAD\n\n\n{0}\n/{1}/'.format(
+            request.headers.get('Date'),
+            bucket_name
+        )
     )
 
     # Debug
@@ -200,7 +198,11 @@ def head_object(path_string):
     authorization_request(
         bucket_name,
         access_key_id,
-        'HEAD\n\n\n{0}\n/{1}'.format(request.headers.get('Date'), path_string)
+        'HEAD\n\n\n{0}\n/{1}/{2}'.format(
+            request.headers.get('Date'),
+            bucket_name,
+            path_string
+        )
     )
 
     local_path = convert_local_path(remote_path)
@@ -232,7 +234,10 @@ def get_root():
     authorization_request(
         bucket_name,
         access_key_id,
-        'GET\n\n\n{0}\n/'.format(request.headers.get('Date'))
+        'GET\n\n\n{0}\n/{1}/'.format(
+            request.headers.get('Date'),
+            bucket_name
+        )
     )
     
     delimiter_string = request.args.get('delimiter')
@@ -304,7 +309,11 @@ def get_object(path_string):
     authorization_request(
         bucket_name,
         access_key_id,
-        'GET\n\n\n{0}\n/{1}'.format(request.headers.get('Date'), path_string)
+        'GET\n\n\n{0}\n/{1}/{2}'.format(
+            request.headers.get('Date'),
+            bucket_name,
+            path_string
+        )
     )
     
     local_path = convert_local_path(remote_path)
@@ -342,9 +351,11 @@ def put_object(path_string):
     authorization_request(
         bucket_name,
         access_key_id,
-        'PUT\n\n{0}\n{1}\n/{2}'.format(
+        'PUT\n{0}\n{1}\n{2}\n/{3}/{4}'.format(
+            request.headers.get('Content-Md5'),
             request.headers.get('Content-Type'),
             request.headers.get('Date'),
+            bucket_name,
             path_string
         )
     )
@@ -386,7 +397,11 @@ def delete_object(path_string):
     authorization_request(
         bucket_name,
         access_key_id,
-        'DELETE\n\n\n{0}\n/{1}'.format(request.headers.get('Date'), path_string)
+        'DELETE\n\n\n{0}\n/{1}/{2}'.format(
+            request.headers.get('Date'),
+            bucket_name,
+            path_string
+        )
     )
     bucket_name, remote_path, request_type = get_request_information(path_string)
     local_path = convert_local_path(remote_path)
