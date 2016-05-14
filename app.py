@@ -406,31 +406,34 @@ def get_object(path_string):
 
 
 def fileupload(bucket_name, remote_path):
-
     local_path = convert_local_path(bucket_name, remote_path)
     dir_path = os.path.dirname(local_path)
-
     # Create Directories
     try:
         os.makedirs(dir_path)
     except OSError:
         pass
-
     # Write posted data to file
     with open(local_path, 'wb') as f:
         f.write(request.data)
         f.close()
-
     # Check MD5
     with open(local_path, 'rb') as f:
         checksum = hashlib.md5(f.read()).hexdigest()
-
     # Response
     headers = {
         'ETag': '"{}"'.format(checksum)
     }
-
     return Response('OK', headers=headers)
+
+def createdirectory(bucket_name, remote_path):
+    local_path = convert_local_path(bucket_name, remote_path)
+    try:
+        os.makedirs(local_path)
+    except OSError:
+        pass
+    return Response('OK')
+
 
 
 @app.route("/<path:path_string>", methods=['PUT'])
@@ -463,6 +466,9 @@ def put_object(path_string):
             remote_path
         )
     )
+
+    if remote_path[-1] == '/':
+        return createdirectory(bucket_name, remote_path)
 
     return fileupload(bucket_name, remote_path)
 
