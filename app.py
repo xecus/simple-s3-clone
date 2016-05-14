@@ -218,24 +218,25 @@ def head_object(path_string):
     print('request_type:[{}]'.format(request_type))
     print('path_string:[{}]'.format(path_string))
 
-    if request_type == RequestType.VirtualHost:
-        authorization_request(
-            bucket_name,
-            access_key_id,
-            'HEAD\n\n\n{0}\n/{1}/{2}'.format(
-                request.headers.get('Date'),
-                bucket_name,
-                path_string
-            )
-        )
-        local_path = convert_local_path(bucket_name, remote_path)
-        print('local_path:[{}]'.format(local_path))
-        if os.path.exists(local_path):
-            return ('', 200)
-        else:
-            return ('', 404)
+    print request.headers
 
-    raise exception.NotImplemented()
+    authorization_request(
+        bucket_name,
+        access_key_id,
+        'HEAD\n\n\n{0}\n/{1}/{2}'.format(
+            request.headers.get('Date'),
+            bucket_name,
+            remote_path
+        )
+    )
+
+    local_path = convert_local_path(bucket_name, remote_path)
+    print('local_path:[{}]'.format(local_path))
+    if os.path.exists(local_path):
+        return ('', 200)
+    else:
+        return ('', 404)
+
 
 def listing_object(bucket_name):
 
@@ -316,7 +317,7 @@ def listing_object(bucket_name):
         #ElementTree.SubElement(owner, 'ID').text = '0001'
         #ElementTree.SubElement(owner, 'DisplayName').text = 'DefaultUser'
 
-    cp = ElementTree.SubElement(contents, 'CommonPrefixes')
+    cp = ElementTree.SubElement(top, 'CommonPrefixes')
     for common_prefix in common_prefixs:
         ElementTree.SubElement(cp, 'Prefix').text = common_prefix
 
