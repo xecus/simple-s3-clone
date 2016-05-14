@@ -238,7 +238,7 @@ def head_object(path_string):
     local_path = convert_local_path(bucket_name, remote_path)
     if not os.path.exists(local_path):
         return ('', 404)
-    return ('', 404)
+    return ('', 200)
 
 
 def listing_object(bucket_name):
