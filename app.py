@@ -100,9 +100,6 @@ def get_request_information(path_string):
 
 
 def validation_request_header(keys):
-    print '-----------------------'
-    print request.headers
-    print '-----------------------'
     for key in keys:
         if key not in request.headers:
             raise exception.InvalidArgument()
@@ -164,6 +161,19 @@ def convert_local_path(bucket_name, remote_path):
     )
 
 
+def detect_x_amz():
+    ret = ''
+    for key in sorted(
+            filter(
+                lambda x: x[0].startswith('X-Amz-'), request.headers.items()
+            )
+    ):
+        k = key[0].lower()
+        v = request.headers.get(key[0])
+        ret += '{}:{}\n'.format(k, v)
+    return ret
+
+
 @app.route("/", methods=['HEAD'])
 def head_root():
     """Check Bucket Accessing Permission."""
@@ -174,21 +184,23 @@ def head_root():
 
     bucket_name, remote_path, request_type = get_request_information('')
     access_key_id = get_request_access_key_id()
-    authorization_request(
-        bucket_name,
-        access_key_id,
-        'HEAD\n\n\n{0}\n/{1}/'.format(
-            request.headers.get('Date'),
-            bucket_name
-        )
-    )
 
-    # Debug
     print('bucket_name:[{}]'.format(bucket_name))
     print('remote_path:[{}]'.format(remote_path))
     print('request_type:[{}]'.format(request_type))
 
-    return ('', 200)
+    if request_type == RequestType.VirtualHost:
+        authorization_request(
+            bucket_name,
+            access_key_id,
+            'HEAD\n\n\n{0}\n/{1}/'.format(
+                request.headers.get('Date'),
+                bucket_name
+            )
+        )
+        return ('', 200)
+
+    raise exception.NotImplemented()
 
 
 @app.route("/<path:path_string>", methods=['HEAD'])
@@ -200,64 +212,44 @@ def head_object(path_string):
 
     bucket_name, remote_path, request_type = get_request_information(path_string)
     access_key_id = get_request_access_key_id()
-    authorization_request(
-        bucket_name,
-        access_key_id,
-        'HEAD\n\n\n{0}\n/{1}/{2}'.format(
-            request.headers.get('Date'),
-            bucket_name,
-            path_string
-        )
-    )
 
-    local_path = convert_local_path(bucket_name, remote_path)
-
-    # Debug
-    print('path_string:[{}]'.format(path_string))
     print('bucket_name:[{}]'.format(bucket_name))
     print('remote_path:[{}]'.format(remote_path))
     print('request_type:[{}]'.format(request_type))
-    print('local_path:[{}]'.format(local_path))
+    print('path_string:[{}]'.format(path_string))
 
-    # Object Check
-    if os.path.exists(local_path):
-        return ('', 200)
-    else:
-        return ('', 404)
-
-
-@app.route("/", methods=['GET'])
-def get_root():
-    """Listing Object ."""
-    # Process Header
-    validation_request_header(['Host', 'Date', 'Authorization'])
-    validation_request_authorization()
-    validation_date()
-
-    bucket_name, remote_path, request_type = get_request_information('')
-    access_key_id = get_request_access_key_id()
-    authorization_request(
-        bucket_name,
-        access_key_id,
-        'GET\n\n\n{0}\n/{1}/'.format(
-            request.headers.get('Date'),
-            bucket_name
+    if request_type == RequestType.VirtualHost:
+        authorization_request(
+            bucket_name,
+            access_key_id,
+            'HEAD\n\n\n{0}\n/{1}/{2}'.format(
+                request.headers.get('Date'),
+                bucket_name,
+                path_string
+            )
         )
-    )
-    
+        local_path = convert_local_path(bucket_name, remote_path)
+        print('local_path:[{}]'.format(local_path))
+        if os.path.exists(local_path):
+            return ('', 200)
+        else:
+            return ('', 404)
+
+    raise exception.NotImplemented()
+
+def listing_object(bucket_name):
+
+    # Get Query Parameter
     delimiter_string = request.args.get('delimiter')
     marker_string = request.args.get('marker')
     max_keys_string = request.args.get('max-keys', '1000')
     prefix_string = request.args.get('prefix', '')
-
-    print('bucket_name:[{}]'.format(bucket_name))
-    print('remote_path:[{}]'.format(remote_path))
-    print('request_type:[{}]'.format(request_type))
     print('delimiter:[{}]'.format(delimiter_string))
     print('marker:[{}]'.format(marker_string))
     print('max-keys:[{}]'.format(max_keys_string))
     print('prefix:[{}]'.format(prefix_string))
 
+    # Detect Bucket objects
     objects = list()
     bucket_root = convert_local_path(bucket_name, '')
     for root, dirs, files in os.walk(
@@ -271,17 +263,23 @@ def get_root():
             abs_path = abs_path[len('{}/'.format(bucket_root)):]
             objects.append(abs_path)
 
+    # Generate XML (Header part)
     top = ElementTree.Element(
         'ListBucketResult',
         {'xmlns': 'http://s3.amazonaws.com/doc/2006-03-01/'})
     ElementTree.SubElement(top, 'Name').text = bucket_name
     ElementTree.SubElement(top, 'Prefix').text = prefix_string
+    if delimiter_string:
+        ElementTree.SubElement(top, 'Delimiter').text = delimiter_string
+    else:
+        ElementTree.SubElement(top, 'Delimiter')
     # ElementTree.SubElement(top, 'Marker')
     # ElementTree.SubElement(top, 'NextMarker')
     ElementTree.SubElement(top, 'KeyCount').text = str(len(objects))
     ElementTree.SubElement(top, 'MaxKeys').text = max_keys_string
     ElementTree.SubElement(top, 'IsTruncated').text = 'false'
 
+    # Generate XML (Objects part)
     for object in objects:
 
         origin_object = object
@@ -289,8 +287,8 @@ def get_root():
 
         with open(object, 'rb') as f:
                 checksum = hashlib.md5(f.read()).hexdigest()
-        print('object:[{}]'.format(object))
-        print('exists:[{}]'.format(os.path.exists(object)))
+        #print('object:[{}]'.format(object))
+        #print('exists:[{}]'.format(os.path.exists(object)))
         # Get Parameters of file
         last_modified = datetime.datetime.fromtimestamp(
             os.stat(object).st_mtime
@@ -311,6 +309,49 @@ def get_root():
     xml_data = util.xml_prettify(top)
     return Response(xml_data, mimetype='application/xml')
 
+def return_object(local_path, content_type='application/octet-stream'):
+
+    if not os.path.exists(local_path):
+        raise exception.NoSuchKey()
+
+    if not os.path.isfile(local_path):
+        raise exception.InvalidArgument()
+
+    data = ''
+    with open(local_path, 'rb') as f:
+        data = f.read()
+        f.close()
+    return Response(response=data, content_type=content_type)
+
+
+@app.route("/", methods=['GET'])
+def get_root():
+    """Listing Object ."""
+    # Process Header
+    validation_request_header(['Host', 'Date', 'Authorization'])
+    validation_request_authorization()
+    validation_date()
+
+    bucket_name, remote_path, request_type = get_request_information('')
+    access_key_id = get_request_access_key_id()
+
+    print('bucket_name:[{}]'.format(bucket_name))
+    print('remote_path:[{}]'.format(remote_path))
+    print('request_type:[{}]'.format(request_type))
+
+    if request_type != RequestType.VirtualHost:
+        raise exception.NotImplemented()
+
+    authorization_request(
+        bucket_name,
+        access_key_id,
+        'GET\n\n\n{}\n/{}/'.format(
+            request.headers.get('Date'),
+            bucket_name
+        )
+    )
+    return listing_object(bucket_name)
+
 
 @app.route("/<path:path_string>", methods=['GET'])
 def get_object(path_string):
@@ -321,65 +362,37 @@ def get_object(path_string):
 
     bucket_name, remote_path, request_type = get_request_information(path_string)
     access_key_id = get_request_access_key_id()
-    authorization_request(
-        bucket_name,
-        access_key_id,
-        'GET\n\n\n{0}\n/{1}/{2}'.format(
-            request.headers.get('Date'),
-            bucket_name,
-            path_string
-        )
-    )
-    
-    local_path = convert_local_path(bucket_name, remote_path)
-    print('path_string:[{}]'.format(path_string))
+
     print('bucket_name:[{}]'.format(bucket_name))
     print('remote_path:[{}]'.format(remote_path))
-    print('local_path:[{}]'.format(local_path))
     print('request_type:[{}]'.format(request_type))
+    print('path_string:[{}]'.format(path_string))
 
-    if not os.path.exists(local_path):
-        raise exception.NoSuchKey()
-
-    if os.path.isfile(local_path):
-        data = ''
-        with open(local_path, 'rb') as f:
-            data = f.read()
-            f.close()
-        return Response(response=data,
-                        content_type='application/octet-stream')
-    else:
-        raise exception.InvalidArgument()
-
-
-@app.route("/<path:path_string>", methods=['PUT'])
-def put_object(path_string):
-    """Create Object."""
-    validation_request_header(
-        ['Host', 'Date', 'Content-Length', 'Content-Type', 'Authorization']
-    )
-    validation_request_authorization()
-    validation_date()
-
-    bucket_name, remote_path, request_type = get_request_information(path_string)
-    access_key_id = get_request_access_key_id()
     authorization_request(
         bucket_name,
         access_key_id,
-        'PUT\n{0}\n{1}\n{2}\n/{3}/{4}'.format(
-            request.headers.get('Content-Md5'),
-            request.headers.get('Content-Type'),
+        'GET\n\n\n{}\n{}/{}/{}'.format(
             request.headers.get('Date'),
+            detect_x_amz(),
             bucket_name,
-            path_string
+            remote_path,
         )
     )
 
-    validation_filesize(request.headers.get('Content-Length'))
+    if remote_path == '':
+        return listing_object(bucket_name)
+
+    local_path = convert_local_path(bucket_name, remote_path)
+    print('local_path:[{}]'.format(local_path))
+    return return_object(local_path)
+
+
+def fileupload(bucket_name, remote_path):
+
+    local_path = convert_local_path(bucket_name, remote_path)
+    dir_path = os.path.dirname(local_path)
 
     # Create Directories
-    local_path = convert_local_path(bucket_name, path_string)
-    dir_path = os.path.dirname(local_path)
     try:
         os.makedirs(dir_path)
     except OSError:
@@ -402,6 +415,41 @@ def put_object(path_string):
     return Response('OK', headers=headers)
 
 
+@app.route("/<path:path_string>", methods=['PUT'])
+def put_object(path_string):
+    """Create Object."""
+    validation_request_header(
+        ['Host', 'Date', 'Content-Length', 'Content-Type', 'Authorization']
+    )
+    validation_request_authorization()
+    validation_date()
+    validation_filesize(request.headers.get('Content-Length'))
+
+    bucket_name, remote_path, request_type = get_request_information(path_string)
+    access_key_id = get_request_access_key_id()
+
+    print('bucket_name:[{}]'.format(bucket_name))
+    print('remote_path:[{}]'.format(remote_path))
+    print('request_type:[{}]'.format(request_type))
+    print('path_string:[{}]'.format(path_string))
+
+    if request_type == RequestType.VirtualHost:
+        authorization_request(
+            bucket_name,
+            access_key_id,
+            'PUT\n{0}\n{1}\n{2}\n/{3}/{4}'.format(
+                request.headers.get('Content-Md5'),
+                request.headers.get('Content-Type'),
+                request.headers.get('Date'),
+                bucket_name,
+                remote_path
+            )
+        )
+        return fileupload(bucket_name, remote_path)
+
+    raise exception.NotImplemented()
+
+
 @app.route("/<path:path_string>", methods=['DELETE'])
 def delete_object(path_string):
     validation_request_header(['Host', 'Date', 'Authorization'])
@@ -410,24 +458,24 @@ def delete_object(path_string):
 
     bucket_name, remote_path, request_type = get_request_information(path_string)
     access_key_id = get_request_access_key_id()
-    authorization_request(
-        bucket_name,
-        access_key_id,
-        'DELETE\n\n\n{0}\n/{1}/{2}'.format(
-            request.headers.get('Date'),
+
+    if request_type == RequestType.VirtualHost:
+        authorization_request(
             bucket_name,
-            path_string
+            access_key_id,
+            'DELETE\n\n\n{0}\n/{1}/{2}'.format(
+                request.headers.get('Date'),
+                bucket_name,
+                path_string
+            )
         )
-    )
-    bucket_name, remote_path, request_type = get_request_information(path_string)
-    local_path = convert_local_path(bucket_name, remote_path)
+        local_path = convert_local_path(bucket_name, remote_path)
+        if not os.path.exists(local_path):
+            raise exception.NoSuchKey()
+        #shutil.rmtree(local_path)
+        return ('', 204)
 
-
-    if not os.path.exists(local_path):
-        raise exception.NoSuchKey()
-
-    #shutil.rmtree(local_path)
-    return ('', 204)
+    raise exception.NotImplemented()
 
 
 if __name__ == "__main__":
