@@ -12,13 +12,17 @@ buckets:
         access_key_id: access_key_user_1
         secret_access_key: F6AME4B6DSUQ6UIFHW62J0FT0UIOX0YQTTELHD7G
         permission:
-          write: true
-          read: true
-          overwrite: true
+          list: true
+          mkdir: true
+          upload: true
+          download: true
+          delete: true
       -
         access_key_id: access_key_user_2
         secret_access_key: F6AME4B6DSUQ6UIFHW62J0FT0UIOX0YQTTELHD7G
         permission:
-          write: true
-          read: true
-          overwrite: true
+          list: true
+          mkdir: true
+          upload: true
+          download: true
+          delete: true

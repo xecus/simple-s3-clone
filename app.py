@@ -55,16 +55,32 @@ class StorageSettings():
         return bucket_name in cls.settings['buckets']
 
     @classmethod
-    def get_secret_access_key(cls, bucket_name, access_key_id):
-        """Get Secret Access Key from settings."""
+    def get_credential(cls, bucket_name, access_key_id):
+        """Get specified credential."""
         credentials = filter(
             lambda x: x['access_key_id'] == access_key_id,
             cls.settings['buckets'][bucket_name]['credentials']
         )
         if len(credentials) == 1:
-            return credentials[0]['secret_access_key']
+            return credentials[0]
         else:
             return None
+
+    @classmethod
+    def get_secret_access_key(cls, bucket_name, access_key_id):
+        """Get Secret Access Key from settings."""
+        credential = cls.get_credential(bucket_name, access_key_id)
+        if credential:
+            return credential['secret_access_key']
+        else:
+            return None
+
+    @classmethod
+    def permission_check(cls, bucket_name, access_key_id, key):
+        """Permission Check."""
+        credential = cls.get_credential(bucket_name, access_key_id)
+        if not credential['permission'][key]:
+            raise exception.AccessDenied()
 
 
 @app.errorhandler(exception.AppException)
@@ -357,6 +373,7 @@ def get_root():
             bucket_name
         )
     )
+    StorageSettings.permission_check(bucket_name, access_key_id, 'list')
     return listing_object(bucket_name)
 
 
@@ -385,10 +402,12 @@ def get_object(path_string):
         )
     )
     if remote_path == '':
+        StorageSettings.permission_check(bucket_name, access_key_id, 'list')
         return listing_object(bucket_name)
     else:
         local_path = convert_local_path(bucket_name, remote_path)
         print('local_path:[{}]'.format(local_path))
+        StorageSettings.permission_check(bucket_name, access_key_id, 'download')
         return return_object(local_path)
 
 
@@ -459,9 +478,11 @@ def put_object(path_string):
     )
 
     if remote_path[-1] == '/':
+        StorageSettings.permission_check(bucket_name, access_key_id, 'mkdir')
         return createdirectory(bucket_name, remote_path)
-
-    return fileupload(bucket_name, remote_path)
+    else:
+        StorageSettings.permission_check(bucket_name, access_key_id, 'upload')
+        return fileupload(bucket_name, remote_path)
 
 
 @app.route("/<path:path_string>", methods=['DELETE'])
@@ -483,6 +504,7 @@ def delete_object(path_string):
             remote_path
         )
     )
+    StorageSettings.permission_check(bucket_name, access_key_id, 'delete')
     print('*Deleting...{}'.format(remote_path))
     local_path = convert_local_path(bucket_name, remote_path)
     if not os.path.exists(local_path):
