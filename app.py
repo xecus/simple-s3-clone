@@ -450,21 +450,20 @@ def put_object(path_string):
     print('request_type:[{}]'.format(request_type))
     print('path_string:[{}]'.format(path_string))
 
-    if request_type == RequestType.VirtualHost:
-        authorization_request(
+    authorization_request(
+        bucket_name,
+        access_key_id,
+        'PUT\n{}\n{}\n{}\n{}/{}/{}'.format(
+            request.headers.get('Content-Md5', ''),
+            request.headers.get('Content-Type', ''),
+            request.headers.get('Date'),
+            detect_x_amz(),
             bucket_name,
-            access_key_id,
-            'PUT\n{0}\n{1}\n{2}\n/{3}/{4}'.format(
-                request.headers.get('Content-Md5'),
-                request.headers.get('Content-Type'),
-                request.headers.get('Date'),
-                bucket_name,
-                remote_path
-            )
+            remote_path
         )
-        return fileupload(bucket_name, remote_path)
+    )
 
-    raise exception.NotImplemented()
+    return fileupload(bucket_name, remote_path)
 
 
 @app.route("/<path:path_string>", methods=['DELETE'])
@@ -472,31 +471,28 @@ def delete_object(path_string):
     validation_request_header(['Host', 'Date', 'Authorization'])
     validation_request_authorization()
     validation_date()
-
     bucket_name, remote_path, request_type = get_request_information(path_string)
     access_key_id = get_request_access_key_id()
-
-    if request_type == RequestType.VirtualHost:
-        authorization_request(
+    authorization_request(
+        bucket_name,
+        access_key_id,
+        'DELETE\n\n\n{0}\n/{1}/{2}'.format(
+            request.headers.get('Date'),
             bucket_name,
-            access_key_id,
-            'DELETE\n\n\n{0}\n/{1}/{2}'.format(
-                request.headers.get('Date'),
-                bucket_name,
-                path_string
-            )
+            remote_path
         )
-        local_path = convert_local_path(bucket_name, remote_path)
-        if not os.path.exists(local_path):
-            raise exception.NoSuchKey()
-        #shutil.rmtree(local_path)
-        return ('', 204)
-
-    raise exception.NotImplemented()
-
+    )
+    print('*Deleting...{}'.format(remote_path))
+    local_path = convert_local_path(bucket_name, remote_path)
+    if not os.path.exists(local_path):
+        raise exception.NoSuchKey()
+    #shutil.rmtree(local_path)
+    return ('', 204)
 
 if __name__ == "__main__":
+    print('*Launch*')
     StorageSettings.load('settings.yaml')
+    print('[Settings]')
     print StorageSettings.settings
     app.run(
         host=StorageSettings.settings['app']['host'],
