@@ -509,7 +509,10 @@ def delete_object(path_string):
     local_path = convert_local_path(bucket_name, remote_path)
     if not os.path.exists(local_path):
         raise exception.NoSuchKey()
-    # shutil.rmtree(local_path)
+    if remote_path[-1] == '/':
+        shutil.rmtree(local_path)
+    else:
+        os.remove(local_path)
     return ('', 204)
 
 if __name__ == "__main__":
