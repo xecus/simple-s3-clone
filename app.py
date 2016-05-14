@@ -44,16 +44,19 @@ class StorageSettings():
 
     @classmethod
     def load(cls, filepath):
+        """Load Settings yaml."""
         with open(filepath, 'r') as f:
             cls.settings = yaml.load(f)
             f.close()
 
     @classmethod
     def has_bucket(cls, bucket_name):
+        """Get bucket exists."""
         return bucket_name in cls.settings['buckets']
 
     @classmethod
     def get_secret_access_key(cls, bucket_name, access_key_id):
+        """Get Secret Access Key from settings."""
         credentials = filter(
             lambda x: x['access_key_id'] == access_key_id,
             cls.settings['buckets'][bucket_name]['credentials']
@@ -62,21 +65,24 @@ class StorageSettings():
             return credentials[0]['secret_access_key']
         else:
             return None
-    
+
 
 @app.errorhandler(exception.AppException)
 def handle_invalid_usage(error):
+    """Output Error."""
     response = jsonify(status_code=error.status_code, message=error.message)
     response.status_code = error.status_code
     return response
 
 
 def get_request_access_key_id():
+    """Get Access Key ID from request header."""
     auth_string = request.headers.get('Authorization').split(' ')[1]
     return auth_string.split(':')[0]
 
 
 def get_request_information(path_string):
+    """Analyze Request."""
     # Remove URL Query
     if path_string.count('?') > 0:
         path_string = path_string.split('?', 1)[0]
@@ -100,12 +106,14 @@ def get_request_information(path_string):
 
 
 def validation_request_header(keys):
+    """Check requirement key exsists."""
     for key in keys:
         if key not in request.headers:
             raise exception.InvalidArgument()
 
 
 def validation_request_authorization():
+    """Check Authorization Header."""
     auth_string = request.headers.get('Authorization').split(' ')
     if len(auth_string) != 2:
         raise exception.InvalidArgument()
@@ -116,6 +124,7 @@ def validation_request_authorization():
 
 
 def validation_date():
+    """Requested date check."""
     try:
         date = dateutil.parser.parse(request.headers.get('Date'))
     except exception.TypeError:
@@ -127,22 +136,23 @@ def validation_date():
 
 
 def validation_filesize(size):
+    """validate uploaded data length."""
     if len(request.data) != int(size):
         raise exception.InvalidArgument()
 
 
 def authorization_request(bucket_name, access_key_id, raw_string):
-
+    """Authorization."""
     if not StorageSettings.has_bucket(bucket_name):
         print('Err: NoSuchBucket')
         raise exception.NoSuchBucket()
-    
+    # Check: Access Key ID
     secret_access_key = StorageSettings.get_secret_access_key(
         bucket_name, access_key_id)
     if secret_access_key is None:
         print('Err: InvalidAccessKeyId')
         raise exception.InvalidAccessKeyId()
-
+    # Generate Token
     hashed = hmac.new(secret_access_key, raw_string, hashlib.sha1).digest()
     calc_token = 'AWS {0}:{1}'.format(
         access_key_id, base64.encodestring(hashed).rstrip()
@@ -153,6 +163,7 @@ def authorization_request(bucket_name, access_key_id, raw_string):
 
 
 def convert_local_path(bucket_name, remote_path):
+    """Generate local filepath."""
     return os.path.abspath(
         os.path.join(
             StorageSettings.settings['buckets'][bucket_name]['root_path'],
@@ -162,6 +173,7 @@ def convert_local_path(bucket_name, remote_path):
 
 
 def detect_x_amz():
+    """Detect X-AMZ Header and return string for authorization."""
     ret = ''
     for key in sorted(
             filter(
@@ -181,14 +193,11 @@ def head_root():
     validation_request_header(['Host', 'Date', 'Authorization'])
     validation_request_authorization()
     validation_date()
-
     bucket_name, remote_path, request_type = get_request_information('')
     access_key_id = get_request_access_key_id()
-
     print('bucket_name:[{}]'.format(bucket_name))
     print('remote_path:[{}]'.format(remote_path))
     print('request_type:[{}]'.format(request_type))
-
     if request_type == RequestType.VirtualHost:
         authorization_request(
             bucket_name,
@@ -199,7 +208,6 @@ def head_root():
             )
         )
         return ('', 200)
-
     raise exception.NotImplemented()
 
 
@@ -209,17 +217,14 @@ def head_object(path_string):
     validation_request_header(['Host', 'Date', 'Authorization'])
     validation_request_authorization()
     validation_date()
-
-    bucket_name, remote_path, request_type = get_request_information(path_string)
+    bucket_name, remote_path, request_type = get_request_information(
+        path_string
+    )
     access_key_id = get_request_access_key_id()
-
     print('bucket_name:[{}]'.format(bucket_name))
     print('remote_path:[{}]'.format(remote_path))
     print('request_type:[{}]'.format(request_type))
     print('path_string:[{}]'.format(path_string))
-
-    print request.headers
-
     authorization_request(
         bucket_name,
         access_key_id,
@@ -229,17 +234,15 @@ def head_object(path_string):
             remote_path
         )
     )
-
+    # Exists Check
     local_path = convert_local_path(bucket_name, remote_path)
-    print('local_path:[{}]'.format(local_path))
-    if os.path.exists(local_path):
-        return ('', 200)
-    else:
+    if not os.path.exists(local_path):
         return ('', 404)
+    return ('', 404)
 
 
 def listing_object(bucket_name):
-
+    """List objects and common prefix."""
     # Get Query Parameter
     delimiter_string = request.args.get('delimiter', '')
     marker_string = request.args.get('marker', '')
@@ -249,24 +252,18 @@ def listing_object(bucket_name):
     print('marker:[{}]'.format(marker_string))
     print('max-keys:[{}]'.format(max_keys_string))
     print('prefix:[{}]'.format(prefix_string))
-
     # Detect Bucket objects
     objects = list()
     common_prefixs = list()
-
     bucket_root = convert_local_path(bucket_name, '')
     prefix_root = convert_local_path(bucket_name, prefix_string)
-
     if delimiter_string == '':
-
         for root, dirs, files in os.walk(prefix_root):
             for file in files:
                 abspath = os.path.abspath(os.path.join(root, file))
                 relpath = abspath[len('{}/'.format(bucket_root)):]
                 objects.append(relpath)
-
     elif delimiter_string == '/':
-
         for object_on_prefix in os.listdir(prefix_root):
             abspath = os.path.join(prefix_root, object_on_prefix)
             relpath = abspath[len('{}/'.format(bucket_root)):]
@@ -274,10 +271,8 @@ def listing_object(bucket_name):
                 common_prefixs.append('{}/'.format(relpath))
             else:
                 objects.append(relpath)
-
     else:
         raise exception.NotImplemented()
-
     # Generate XML (Header part)
     top = ElementTree.Element(
         'ListBucketResult',
@@ -290,17 +285,12 @@ def listing_object(bucket_name):
     ElementTree.SubElement(top, 'KeyCount').text = str(len(objects))
     ElementTree.SubElement(top, 'MaxKeys').text = max_keys_string
     ElementTree.SubElement(top, 'IsTruncated').text = 'false'
-
     # Generate XML (Objects part)
     for object in objects:
-
         origin_object = object
         object = convert_local_path(bucket_name, object)
-
         with open(object, 'rb') as f:
                 checksum = hashlib.md5(f.read()).hexdigest()
-        #print('object:[{}]'.format(object))
-        #print('exists:[{}]'.format(os.path.exists(object)))
         # Get Parameters of file
         last_modified = datetime.datetime.fromtimestamp(
             os.stat(object).st_mtime
@@ -308,32 +298,31 @@ def listing_object(bucket_name):
         etag = '&quot;{}&quot;'.format(checksum)
         size = '{}'.format(os.path.getsize(object))
         contents = ElementTree.SubElement(top, 'Contents')
-        ElementTree.SubElement(contents, 'Key').text = '{}'.format(origin_object)
+        ElementTree.SubElement(contents, 'Key').text = '{}'.format(
+            origin_object
+        )
         ElementTree.SubElement(contents, 'LastModified').text = last_modified
         ElementTree.SubElement(contents, 'ETag').text = etag
         ElementTree.SubElement(contents, 'Size').text = size
         ElementTree.SubElement(contents, 'StorageClass').text = 'Standard'
-        #owner = ElementTree.SubElement(contents, 'Owner')
-        #ElementTree.SubElement(owner, 'ID').text = '0001'
-        #ElementTree.SubElement(owner, 'DisplayName').text = 'DefaultUser'
-
+        # owner = ElementTree.SubElement(contents, 'Owner')
+        # ElementTree.SubElement(owner, 'ID').text = '0001'
+        # ElementTree.SubElement(owner, 'DisplayName').text = 'DefaultUser'
+    # CommonPrefix
     cp = ElementTree.SubElement(top, 'CommonPrefixes')
     for common_prefix in common_prefixs:
         ElementTree.SubElement(cp, 'Prefix').text = common_prefix
-
     # Response
     xml_data = util.xml_prettify(top)
-    print xml_data
     return Response(xml_data, mimetype='application/xml')
 
-def return_object(local_path, content_type='application/octet-stream'):
 
+def return_object(local_path, content_type='application/octet-stream'):
+    """Return Object Data."""
     if not os.path.exists(local_path):
         raise exception.NoSuchKey()
-
     if not os.path.isfile(local_path):
         raise exception.InvalidArgument()
-
     data = ''
     with open(local_path, 'rb') as f:
         data = f.read()
@@ -377,15 +366,14 @@ def get_object(path_string):
     validation_request_header(['Host', 'Date', 'Authorization'])
     validation_request_authorization()
     validation_date()
-
-    bucket_name, remote_path, request_type = get_request_information(path_string)
+    bucket_name, remote_path, request_type = get_request_information(
+        path_string
+    )
     access_key_id = get_request_access_key_id()
-
     print('bucket_name:[{}]'.format(bucket_name))
     print('remote_path:[{}]'.format(remote_path))
     print('request_type:[{}]'.format(request_type))
     print('path_string:[{}]'.format(path_string))
-
     authorization_request(
         bucket_name,
         access_key_id,
@@ -396,7 +384,6 @@ def get_object(path_string):
             remote_path,
         )
     )
-
     if remote_path == '':
         return listing_object(bucket_name)
     else:
@@ -406,6 +393,7 @@ def get_object(path_string):
 
 
 def fileupload(bucket_name, remote_path):
+    """Process Uploaded file."""
     local_path = convert_local_path(bucket_name, remote_path)
     dir_path = os.path.dirname(local_path)
     # Create Directories
@@ -426,14 +414,15 @@ def fileupload(bucket_name, remote_path):
     }
     return Response('OK', headers=headers)
 
+
 def createdirectory(bucket_name, remote_path):
+    """Process creating directory request."""
     local_path = convert_local_path(bucket_name, remote_path)
     try:
         os.makedirs(local_path)
     except OSError:
         pass
     return Response('OK')
-
 
 
 @app.route("/<path:path_string>", methods=['PUT'])
@@ -446,7 +435,9 @@ def put_object(path_string):
     validation_date()
     validation_filesize(request.headers.get('Content-Length'))
 
-    bucket_name, remote_path, request_type = get_request_information(path_string)
+    bucket_name, remote_path, request_type = get_request_information(
+        path_string
+    )
     access_key_id = get_request_access_key_id()
 
     print('bucket_name:[{}]'.format(bucket_name))
@@ -475,10 +466,13 @@ def put_object(path_string):
 
 @app.route("/<path:path_string>", methods=['DELETE'])
 def delete_object(path_string):
+    """Deleting Object."""
     validation_request_header(['Host', 'Date', 'Authorization'])
     validation_request_authorization()
     validation_date()
-    bucket_name, remote_path, request_type = get_request_information(path_string)
+    bucket_name, remote_path, request_type = get_request_information(
+        path_string
+    )
     access_key_id = get_request_access_key_id()
     authorization_request(
         bucket_name,
@@ -493,16 +487,15 @@ def delete_object(path_string):
     local_path = convert_local_path(bucket_name, remote_path)
     if not os.path.exists(local_path):
         raise exception.NoSuchKey()
-    #shutil.rmtree(local_path)
+    # shutil.rmtree(local_path)
     return ('', 204)
 
 if __name__ == "__main__":
     print('*Launch*')
     StorageSettings.load('settings.yaml')
     print('[Settings]')
-    print StorageSettings.settings
+    print(StorageSettings.settings)
     app.run(
         host=StorageSettings.settings['app']['host'],
         port=StorageSettings.settings['app']['port']
     )
-
