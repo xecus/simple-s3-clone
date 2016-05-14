@@ -241,7 +241,7 @@ def listing_object(bucket_name):
 
     # Get Query Parameter
     delimiter_string = request.args.get('delimiter')
-    marker_string = request.args.get('marker')
+    marker_string = request.args.get('marker', '')
     max_keys_string = request.args.get('max-keys', '1000')
     prefix_string = request.args.get('prefix', '')
     print('delimiter:[{}]'.format(delimiter_string))
@@ -269,7 +269,7 @@ def listing_object(bucket_name):
         {'xmlns': 'http://s3.amazonaws.com/doc/2006-03-01/'})
     ElementTree.SubElement(top, 'Name').text = bucket_name
     ElementTree.SubElement(top, 'Prefix').text = prefix_string
-    if delimiter_string:
+    if delimiter_string != '':
         ElementTree.SubElement(top, 'Delimiter').text = delimiter_string
     else:
         ElementTree.SubElement(top, 'Delimiter')
@@ -296,7 +296,7 @@ def listing_object(bucket_name):
         etag = '&quot;{}&quot;'.format(checksum)
         size = '{}'.format(os.path.getsize(object))
         contents = ElementTree.SubElement(top, 'Contents')
-        ElementTree.SubElement(contents, 'Key').text = origin_object
+        ElementTree.SubElement(contents, 'Key').text = '{}'.format(origin_object)
         ElementTree.SubElement(contents, 'LastModified').text = last_modified
         ElementTree.SubElement(contents, 'ETag').text = etag
         ElementTree.SubElement(contents, 'Size').text = size
@@ -305,8 +305,12 @@ def listing_object(bucket_name):
         #ElementTree.SubElement(owner, 'ID').text = '0001'
         #ElementTree.SubElement(owner, 'DisplayName').text = 'DefaultUser'
 
+        #common_prefixes = ElementTree.SubElement(contents, 'CommonPrefixes')
+        #ElementTree.SubElement(common_prefixes, 'Prefix').text = 'record-test/'
+
     # Response
     xml_data = util.xml_prettify(top)
+    print xml_data
     return Response(xml_data, mimetype='application/xml')
 
 def return_object(local_path, content_type='application/octet-stream'):
@@ -345,8 +349,9 @@ def get_root():
     authorization_request(
         bucket_name,
         access_key_id,
-        'GET\n\n\n{}\n/{}/'.format(
+        'GET\n\n\n{}\n{}/{}/'.format(
             request.headers.get('Date'),
+            detect_x_amz(),
             bucket_name
         )
     )
@@ -381,10 +386,10 @@ def get_object(path_string):
 
     if remote_path == '':
         return listing_object(bucket_name)
-
-    local_path = convert_local_path(bucket_name, remote_path)
-    print('local_path:[{}]'.format(local_path))
-    return return_object(local_path)
+    else:
+        local_path = convert_local_path(bucket_name, remote_path)
+        print('local_path:[{}]'.format(local_path))
+        return return_object(local_path)
 
 
 def fileupload(bucket_name, remote_path):
