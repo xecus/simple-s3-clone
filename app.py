@@ -240,7 +240,7 @@ def head_object(path_string):
 def listing_object(bucket_name):
 
     # Get Query Parameter
-    delimiter_string = request.args.get('delimiter')
+    delimiter_string = request.args.get('delimiter', '')
     marker_string = request.args.get('marker', '')
     max_keys_string = request.args.get('max-keys', '1000')
     prefix_string = request.args.get('prefix', '')
@@ -251,17 +251,31 @@ def listing_object(bucket_name):
 
     # Detect Bucket objects
     objects = list()
+    common_prefixs = list()
+
     bucket_root = convert_local_path(bucket_name, '')
-    for root, dirs, files in os.walk(
-            os.path.join(
-                StorageSettings.settings['buckets'][bucket_name]['root_path'],
-                prefix_string
-            )
-    ):
-        for file in files:
-            abs_path = os.path.abspath(os.path.join(root, file))
-            abs_path = abs_path[len('{}/'.format(bucket_root)):]
-            objects.append(abs_path)
+    prefix_root = convert_local_path(bucket_name, prefix_string)
+
+    if delimiter_string == '':
+
+        for root, dirs, files in os.walk(prefix_root):
+            for file in files:
+                abspath = os.path.abspath(os.path.join(root, file))
+                relpath = abspath[len('{}/'.format(bucket_root)):]
+                objects.append(relpath)
+
+    elif delimiter_string == '/':
+
+        for object_on_prefix in os.listdir(prefix_root):
+            abspath = os.path.join(prefix_root, object_on_prefix)
+            relpath = abspath[len('{}/'.format(bucket_root)):]
+            if os.path.isdir(abspath):
+                common_prefixs.append('{}/'.format(relpath))
+            else:
+                objects.append(relpath)
+
+    else:
+        raise exception.NotImplemented()
 
     # Generate XML (Header part)
     top = ElementTree.Element(
@@ -269,10 +283,7 @@ def listing_object(bucket_name):
         {'xmlns': 'http://s3.amazonaws.com/doc/2006-03-01/'})
     ElementTree.SubElement(top, 'Name').text = bucket_name
     ElementTree.SubElement(top, 'Prefix').text = prefix_string
-    if delimiter_string != '':
-        ElementTree.SubElement(top, 'Delimiter').text = delimiter_string
-    else:
-        ElementTree.SubElement(top, 'Delimiter')
+    ElementTree.SubElement(top, 'Delimiter').text = delimiter_string
     # ElementTree.SubElement(top, 'Marker')
     # ElementTree.SubElement(top, 'NextMarker')
     ElementTree.SubElement(top, 'KeyCount').text = str(len(objects))
@@ -305,8 +316,9 @@ def listing_object(bucket_name):
         #ElementTree.SubElement(owner, 'ID').text = '0001'
         #ElementTree.SubElement(owner, 'DisplayName').text = 'DefaultUser'
 
-        #common_prefixes = ElementTree.SubElement(contents, 'CommonPrefixes')
-        #ElementTree.SubElement(common_prefixes, 'Prefix').text = 'record-test/'
+    cp = ElementTree.SubElement(contents, 'CommonPrefixes')
+    for common_prefix in common_prefixs:
+        ElementTree.SubElement(cp, 'Prefix').text = common_prefix
 
     # Response
     xml_data = util.xml_prettify(top)
