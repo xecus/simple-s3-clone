@@ -515,9 +515,9 @@ def delete_object(path_string):
         os.remove(local_path)
     return ('', 204)
 
+StorageSettings.load('settings.yaml')
+
 if __name__ == "__main__":
-    print('*Launch*')
-    StorageSettings.load('settings.yaml')
     print('[Settings]')
     print(StorageSettings.settings)
     app.run(
