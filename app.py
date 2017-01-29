@@ -6,13 +6,12 @@ import shutil
 import util
 import exception
 from flask import (
-Flask,
-request,
-g,
-jsonify,
-Response
+    Flask,
+    request,
+    g,
+    jsonify,
+    Response
 )
-import sha
 import hmac
 import base64
 import hashlib
@@ -22,18 +21,18 @@ app.debug = True
 
 hostname = 'b.tgr.tokyo'
 users = [
-  ('hogehoge_user1', 'hogehoge_password1'),
-  ('hogehoge_user2', 'hogehoge_password2'),
-  ('hogehoge_user3', 'hogehoge_password3'),
+    ('hogehoge_user1', 'hogehoge_password1'),
+    ('hogehoge_user2', 'hogehoge_password2'),
+    ('hogehoge_user3', 'hogehoge_password3'),
 ]
 
 
 def get_auth_info():
     if 'Authorization' not in request.headers:
-      raise exception.InvalidArgument()
+        raise exception.InvalidArgument()
     auth_string = request.headers.get('Authorization').split(' ')
     if len(auth_string) != 2:
-      raise exception.InvalidArgument()
+        raise exception.InvalidArgument()
     return auth_string[1]
 
 
@@ -42,7 +41,7 @@ def get_date_on_request():
         if key in request.headers:
             break
     else:
-      raise exception.InvalidArgument()
+        raise exception.InvalidArgument()
     return request.headers[key]
 
 
@@ -61,14 +60,16 @@ def generate_x_amz_string():
 
 def auth_check(auth_info, auth_raw_string):
     if ':' not in auth_info:
-      raise exception.InvalidArgument()
+        raise exception.InvalidArgument()
     access_key_id = auth_info.split(':')[0]
     user = filter(lambda x: x[0] == access_key_id, users)
     if len(user) == 0:
         raise exception.InvalidAccessKeyId()
     secret_access_key = user[0][1]
-    hashed = hmac.new(secret_access_key, auth_raw_string, hashlib.sha1).digest()
-    generated_signature = '{}:{}'.format(access_key_id, base64.encodestring(hashed).rstrip())
+    hashed = hmac.new(secret_access_key, auth_raw_string,
+                      hashlib.sha1).digest()
+    generated_signature = '{}:{}'.format(
+        access_key_id, base64.encodestring(hashed).rstrip())
     if auth_info != generated_signature:
         raise exception.SignatureDoesNotMatch()
 
@@ -107,15 +108,15 @@ def before_request():
     g.auth_raw_string = generate_auth_string()
     g.bucket_name, g.resource_path = get_bucket_name_and_resource_path()
 
-    #print(request.path)
-    #print(request.method)
-    #print(request.headers)
-    #print('g.auth_info=[{}]'.format(g.auth_info))
-    #print('g.date=[{}]'.format(g.date))
-    #print('g.x_amz_string=[{}]'.format(g.x_amz_string.rstrip()))
-    #print('g.auth_raw_string=[{}]'.format(','.join(g.auth_raw_string.split('\n'))))
-    #print('g.bucket_name=[{}]'.format(g.bucket_name))
-    #print('g.resource_path=[{}]'.format(g.resource_path))
+    # print(request.path)
+    # print(request.method)
+    # print(request.headers)
+    # print('g.auth_info=[{}]'.format(g.auth_info))
+    # print('g.date=[{}]'.format(g.date))
+    # print('g.x_amz_string=[{}]'.format(g.x_amz_string.rstrip()))
+    # print('g.auth_raw_string=[{}]'.format(','.join(g.auth_raw_string.split('\n'))))
+    # print('g.bucket_name=[{}]'.format(g.bucket_name))
+    # print('g.resource_path=[{}]'.format(g.resource_path))
 
     auth_check(g.auth_info, g.auth_raw_string)
 
@@ -139,10 +140,11 @@ def get_request_with_path(path):
     else:
         return download_object()
 
+
 @app.route("/<path:path>", methods=['PUT'])
 def put_request_with_path(path):
     if int(request.headers.get('Content-Length')) != len(request.data):
-      raise exception.MissingContentLength()
+        raise exception.MissingContentLength()
     if g.resource_path[-1] == '/':
         return create_prefix()
     else:
@@ -159,31 +161,32 @@ def delete_request_with_path(path):
 
 def process_object_list():
     delimiter_string = request.args.get('delimiter', '')
-    marker_string = request.args.get('marker', '')
-    max_keys_string = request.args.get('max-keys', '1000')
+    #marker_string = request.args.get('marker', '')
+    #max_keys_string = request.args.get('max-keys', '1000')
     prefix_string = request.args.get('prefix', '')
-    #print('delimiter_string=[{}]'.format(delimiter_string))
-    #print('marker_string=[{}]'.format(marker_string))
-    #print('max_keys_string=[{}]'.format(max_keys_string))
-    #print('prefix_string=[{}]'.format(prefix_string))
+    # print('delimiter_string=[{}]'.format(delimiter_string))
+    # print('marker_string=[{}]'.format(marker_string))
+    # print('max_keys_string=[{}]'.format(max_keys_string))
+    # print('prefix_string=[{}]'.format(prefix_string))
     objects = []
     common_prefixes = []
     root_path = util.get_absolute_object_path('')
     prefix_root = util.get_absolute_object_path(prefix_string)
     if delimiter_string == '':
-        objects, common_prefixes = util.get_object_list_recursive(root_path, prefix_root)
+        objects, common_prefixes = util.get_object_list_recursive(
+            root_path, prefix_root)
     elif delimiter_string == '/':
         objects, common_prefixes = util.get_object_list(root_path, prefix_root)
     else:
         raise exception.NotImplemented()
-    #print objects
-    #print common_prefixes
+    # print objects
+    # print common_prefixes
     xml_data = util.generate_xml_object_list(objects, common_prefixes)
     return Response(xml_data, mimetype='application/xml')
 
 
 def download_object():
-    content_type='application/octet-stream'
+    content_type = 'application/octet-stream'
     object_path = util.get_absolute_object_path(g.resource_path)
     if not os.path.exists(object_path):
         raise exception.NoSuchKey()
@@ -221,12 +224,14 @@ def create_object():
     }
     return Response('OK', headers=headers)
 
+
 def delete_prefix():
     object_path = util.get_absolute_object_path(g.resource_path)
     if not os.path.exists(object_path):
         raise exception.NoSuchKey()
     shutil.rmtree(object_path)
     return ('', 204)
+
 
 def delete_object():
     object_path = util.get_absolute_object_path(g.resource_path)

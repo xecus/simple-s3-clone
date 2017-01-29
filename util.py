@@ -1,12 +1,11 @@
 import os
-import random
 from xml.etree import ElementTree
 from xml.dom import minidom
 
 import datetime
 import hashlib
 from flask import (
-  request
+    request
 )
 
 
@@ -64,7 +63,7 @@ def generate_xml_object_list(objects, prefixes):
     for obj in objects:
         absolute_obj_path = get_absolute_object_path(obj)
         with open(absolute_obj_path, 'rb') as f:
-                checksum = hashlib.md5(f.read()).hexdigest()
+            checksum = hashlib.md5(f.read()).hexdigest()
         last_modified = datetime.datetime.fromtimestamp(
             os.stat(absolute_obj_path).st_mtime
         ).strftime('%Y-%m-%dT%H:%M:%S.000Z')
