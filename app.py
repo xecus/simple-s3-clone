@@ -19,7 +19,7 @@ import hashlib
 app = Flask(__name__)
 app.debug = True
 
-hostname = 'b.tgr.tokyo'
+hostname = 'b.yourdomain'
 users = [
     ('hogehoge_user1', 'hogehoge_password1'),
     ('hogehoge_user2', 'hogehoge_password2'),
